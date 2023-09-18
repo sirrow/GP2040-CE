@@ -154,28 +154,35 @@ inline uint16_t dpadToAnalogY(uint8_t dpad)
 	}
 }
 
-/**
- * @brief DRY method used in filtering diagonals for 4-way mode, checks two adjacent directions
- * and tracks how they toggle.
- *
- * @param dir_a Direction state A to track.
- * @param dir_mask_a Dpad mask state A to check/deselect.
- * @param dir_b Direction state B to track.
- * @param dir_mask_b Dpad mask state B to check/deselect.
- * @param state History for this diagonal (affects which cardinal to deselect).
- * @return uint8_t The modified dpad
- */
-inline uint8_t diagonal_check(uint8_t dpad, DpadDirection dir_a, uint16_t dir_mask_a, DpadDirection dir_b,
-		uint16_t dir_mask_b, DpadDirection* state) {
-	uint8_t newDpad = ~0;
-	if ((dpad & (dir_mask_a | dir_mask_b)) == (dir_mask_a | dir_mask_b)) {
-		newDpad = (*state == dir_a) ? ~dir_mask_a : ~dir_mask_b;
-	} else if ((dpad & (dir_mask_a | dir_mask_b)) == dir_mask_a) {
-		*state = dir_a;
-	} else if ((dpad & (dir_mask_a | dir_mask_b)) == dir_mask_b) {
-		*state = dir_b;
+
+inline uint8_t updateDpad(uint8_t dpad, DpadDirection direction)
+{
+	static DpadDirection prev[DIRECTION_RIGHT+1] = {DIRECTION_NONE, DIRECTION_NONE, DIRECTION_NONE, DIRECTION_NONE, DIRECTION_NONE};
+	static DpadDirection next[DIRECTION_RIGHT+1] = {DIRECTION_NONE, DIRECTION_NONE, DIRECTION_NONE, DIRECTION_NONE, DIRECTION_NONE};
+	static bool enable[DIRECTION_RIGHT+1] = {false, false, false, false, false};
+
+	if (dpad & dpadMasks[direction-1]) {
+		if (!enable[direction]) {
+			next[prev[DIRECTION_NONE]] = direction;
+			prev[direction] = prev[DIRECTION_NONE];
+			prev[DIRECTION_NONE] = direction;
+			next[direction] = DIRECTION_NONE;
+			enable[direction] = true;
+		}
+	} else {
+		if (enable[direction]) {
+			next[prev[direction]] = next[direction];
+			prev[next[direction]] = prev[direction];
+			enable[direction] = false;
+		}
 	}
-	return newDpad;
+
+	if(prev[DIRECTION_NONE] == DIRECTION_NONE) {
+		return 0;
+	}
+	else {
+		return dpadMasks[prev[DIRECTION_NONE]-1];
+	}
 }
 
 /**
@@ -188,17 +195,10 @@ inline uint8_t diagonal_check(uint8_t dpad, DpadDirection dir_a, uint16_t dir_ma
  */
 inline uint8_t filterToFourWayMode(uint8_t dpad)
 {
-	static DpadDirection lastUL = DIRECTION_NONE;
-	static DpadDirection lastUR = DIRECTION_NONE;
-	static DpadDirection lastDR = DIRECTION_NONE;
-	static DpadDirection lastDL = DIRECTION_NONE;
-
-	dpad &= diagonal_check(dpad, DIRECTION_LEFT, GAMEPAD_MASK_LEFT, DIRECTION_UP, GAMEPAD_MASK_UP, &lastUL);
-	dpad &= diagonal_check(dpad, DIRECTION_UP, GAMEPAD_MASK_UP, DIRECTION_RIGHT, GAMEPAD_MASK_RIGHT, &lastUR);
-	dpad &= diagonal_check(dpad, DIRECTION_RIGHT, GAMEPAD_MASK_RIGHT, DIRECTION_DOWN, GAMEPAD_MASK_DOWN, &lastDR);
-	dpad &= diagonal_check(dpad, DIRECTION_DOWN, GAMEPAD_MASK_DOWN, DIRECTION_LEFT, GAMEPAD_MASK_LEFT, &lastDL);
-
-	return dpad;
+	updateDpad(dpad, DIRECTION_UP);
+	updateDpad(dpad, DIRECTION_DOWN);
+	updateDpad(dpad, DIRECTION_LEFT);
+	return updateDpad(dpad, DIRECTION_RIGHT);
 }
 
 /**
